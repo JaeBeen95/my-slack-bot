@@ -7,7 +7,7 @@ export const handleMentionSummary = async ({ event, say }: any) => {
   }
 
   // "요약" 키워드가 포함된 경우에만 동작
-  if (event.text?.includes('요약')) {
+  if (event.text?.replace(/<@[^>]+>\s*/, '').trim() === '요약') {
     await say({
       thread_ts: event.thread_ts,
       text: `📝 <@${event.user}>님이 요청하신 스레드 요약을 준비 중입니다...\n\n✨ 곧 AI가 이 대화를 요약해드릴 예정입니다!`,

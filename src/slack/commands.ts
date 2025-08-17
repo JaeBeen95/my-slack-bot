@@ -1,6 +1,6 @@
-import type { SlackCommandMiddlewareArgs, AllMiddlewareArgs } from '@slack/bolt';
+import type { SlackCommandMiddlewareArgs, AllMiddlewareArgs, SlackEventMiddlewareArgs } from '@slack/bolt';
 
-export const handleMentionSummary = async ({ event, say }: any) => {
+export const handleMentionSummary = async ({ event, say }: SlackEventMiddlewareArgs<'app_mention'>) => {
   // 스레드에서만 동작하도록 제한
   if (!event.thread_ts) {
     return; // 스레드가 아니면 무시

@@ -1,6 +1,6 @@
 import { App } from '@slack/bolt';
 import dotenv from 'dotenv';
-import { handleSummaryCommand, handleMentionSummary } from './slack/commands';
+import { handleThreadSummaryAction } from './slack/commands';
 
 dotenv.config();
 
@@ -36,11 +36,9 @@ const app = new App({
   ...(isSocketModeEnabled && { appToken: SLACK_SOCKET_TOKEN }),
 });
 
-// 슬래시 커맨드 등록
-app.command('/요약', handleSummaryCommand);
+// Message Shortcut 등록 (우클릭 메뉴)
+app.shortcut('thread_summary', handleThreadSummaryAction);
 
-// 멘션 이벤트 리스너 (스레드에서 봇 멘션 + "요약" 키워드 감지)
-app.event('app_mention', handleMentionSummary);
 
 // 앱 시작
 (async () => {

@@ -23,10 +23,10 @@
   "author": "JaeBeen95",
   "license": "MIT",
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@slack/bolt": "^3.17.1",
     "@slack/web-api": "^7.0.2",
-    "dotenv": "^16.4.5",
-    "openai": "^5.12.2"
+    "dotenv": "^16.4.5"
   },
   "devDependencies": {
     "@types/jest": "^29.5.12",

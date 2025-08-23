@@ -1,5 +1,5 @@
-import { App } from '@slack/bolt';
 import dotenv from 'dotenv';
+import { App } from '@slack/bolt';
 import { handleThreadSummaryAction } from './slack/commands';
 
 dotenv.config();
@@ -38,7 +38,6 @@ const app = new App({
 
 // Message Shortcut 등록 (우클릭 메뉴)
 app.shortcut('thread_summary', handleThreadSummaryAction);
-
 
 // 앱 시작
 (async () => {

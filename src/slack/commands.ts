@@ -1,5 +1,6 @@
 import type { AllMiddlewareArgs, SlackShortcutMiddlewareArgs, MessageShortcut } from '@slack/bolt';
 import { SlackMessageService } from './messageService';
+import { GeminiService } from '../ai/geminiService';
 
 export const handleThreadSummaryAction = async ({
   ack,
@@ -38,7 +39,7 @@ export const handleThreadSummaryAction = async ({
     const threadMessages = await messageService.getThreadMessages({
       channelId: channel.id,
       threadTs: message.ts,
-      botUserId
+      botUserId,
     });
 
     // 스레드가 없는 경우 (답글이 0개)
@@ -50,10 +51,25 @@ export const handleThreadSummaryAction = async ({
       return;
     }
 
-    // 수집된 메시지 정보 (임시 - 추후 AI 요약으로 교체)
+    // AI 요약 생성
     const formattedMessages = messageService.formatMessagesForSummary(threadMessages);
 
-    // TODO: 여기에 AI 요약 로직 추가
+    let aiSummary: string;
+    try {
+      const geminiService = new GeminiService();
+      aiSummary = await geminiService.summarizeMessages({
+        formattedMessages,
+        participants: threadMessages.participants,
+        messageCount: threadMessages.messageCount,
+      });
+    } catch (error) {
+      console.error('AI 요약 실패:', error);
+      await respond({
+        response_type: 'ephemeral',
+        text: '❌ AI 요약 생성에 실패했습니다. 다시 시도해주세요.',
+      });
+      return;
+    }
 
     // DM 채널 열기
     const dmResponse = await client.conversations.open({
@@ -68,11 +84,11 @@ export const handleThreadSummaryAction = async ({
       return;
     }
 
-    // DM으로 요약 결과 전송 (현재는 임시 데이터)
+    // DM으로 AI 요약 결과 전송
     try {
       await client.chat.postMessage({
         channel: dmResponse.channel.id,
-        text: `📋 **스레드 요약 완료**\n\n📊 **수집 정보:**\n• 참여자: ${threadMessages.participants.join(', ')}\n• 메시지 수: ${threadMessages.messageCount}개\n\n💭 곧 AI가 실제 요약을 제공할 예정입니다!`,
+        text: `📋 **스레드 요약 완료**\n\n📊 **수집 정보:**\n• 참여자: ${threadMessages.participants.join(', ')}\n• 메시지 수: ${threadMessages.messageCount}개\n\n🤖 **AI 요약:**\n${aiSummary}`,
       });
     } catch (error) {
       await respond({
@@ -81,10 +97,6 @@ export const handleThreadSummaryAction = async ({
       });
       return;
     }
-
-    // 개발용: 콘솔에 수집된 메시지 출력
-    console.log('📝 수집된 스레드 메시지:');
-    console.log(formattedMessages);
   } catch (error) {
     console.error('스레드 요약 실패:', error);
     await respond({

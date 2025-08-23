@@ -16,7 +16,8 @@ TypeScript와 Node.js로 만든 슬랙 스레드 요약 봇입니다. Message Sh
 - ✅ **사용자 정보 조회** (`users.info` API)
 - ✅ **메시지 필터링 및 포맷팅**
 - ✅ **TypeScript 타입 안전성**
-- ⏳ **AI 요약 기능 연동** (다음 단계)
+- ✅ **Gemini AI 요약 기능 연동**
+- ✅ **DM 전송으로 개인화된 요약 결과 제공**
 - ⏳ **결과 저장 기능** (Notion, 파일 등)
 
 ## 🛠️ 설정 방법
@@ -24,23 +25,36 @@ TypeScript와 Node.js로 만든 슬랙 스레드 요약 봇입니다. Message Sh
 ### 1. 환경 변수
 
 ```bash
+# Slack Bot Configuration
 SLACK_BOT_TOKEN=xoxb-...     # 봇 토큰
 SLACK_SIGNING_SECRET=...     # 서명 검증 키
 SLACK_SOCKET_TOKEN=xapp-...  # Socket Mode 토큰 (선택사항)
+
+# Gemini AI Configuration
+GEMINI_API_KEY=...           # Google Gemini API 키 (필수)
+GEMINI_MODEL=gemini-2.5-flash # 사용할 Gemini 모델 (필수)
 ```
 
-### 2. Slack 앱 설정
+### 2. Gemini API 설정
+
+1. **Google AI Studio** 접속: https://aistudio.google.com
+2. 구글 계정으로 로그인
+3. **API keys** → **Create API key** 클릭
+4. 생성된 API 키를 `.env`의 `GEMINI_API_KEY`에 설정
+
+### 3. Slack 앱 설정
 
 **Interactivity & Shortcuts** → **Message Shortcuts** 추가:
 - Name: `스레드 요약하기`
 - Callback ID: `thread_summary`
 
-### 3. 필요한 권한
+### 4. 필요한 권한
 
-- `chat:write`: 메시지 전송
+- `chat:write`: 메시지 전송 (DM 포함)
 - `channels:history`: 채널 메시지 읽기
 - `groups:history`: 비공개 채널 메시지 읽기
 - `users:read`: 사용자 정보 조회
+- `im:write`: DM 전송
 
 ## 🔧 코드 구조
 
@@ -68,71 +82,70 @@ const app = new App({
 
 ### 2. Message Shortcut 핸들러 (`src/slack/commands.ts`)
 
-#### Shortcut 타입
+#### 처리 흐름
 
-| 타입 | UI | API 타입 | 용도 |
-|------|----|---------|----|
-| **Message Shortcut** | 메시지 점 3개 메뉴(⋯) | `message_action` | 특정 메시지 대상 액션 |
-| **Global Shortcut** | 번개 버튼(⚡) 또는 슬래시 명령어 | `shortcut` | 전역 액션 |
-| **Interactive Components** | 버튼, 드롭다운 등 | `button`, `select_menu` | 메시지 내 상호작용 |
+1. **메시지 정보 추출**: Message Shortcut에서 채널, 스레드 정보 수집
+2. **스레드 메시지 수집**: `SlackMessageService`로 스레드 대화 수집
+3. **AI 요약 생성**: `GeminiService`로 대화 내용 요약
+4. **DM 전송**: 개인 DM으로 요약 결과 전송
 
-#### 핸들러 구조
-
-```typescript
-export const handleThreadSummaryAction = async ({
-  ack,
-  respond,
-  client,
-  context,
-  shortcut,
-}: SlackShortcutMiddlewareArgs & AllMiddlewareArgs) => {
-  await ack(); // 3초 내 응답 필수
-  
-  // 타입 가드
-  if (shortcut.type !== 'message_action') return;
-  
-  // 메시지 정보 추출
-  const { message, channel } = shortcut as MessageShortcut;
-  
-  // 스레드 메시지 수집
-  const messageService = new SlackMessageService(client);
-  const threadMessages = await messageService.getThreadMessages(
-    channel.id,
-    message.ts,
-    context.botUserId
-  );
-  
-  // 응답
-  await respond({
-    response_type: 'ephemeral',
-    text: '📋 **스레드 요약 결과**...',
-  });
-};
-```
-
-#### 핸들러 매개변수
+#### 핵심 기능
 
 ```typescript
-{
-  ack: () => Promise<void>,                    // 즉시 응답 (3초 내 필수)
-  respond: (response) => Promise<void>,        // 메시지 응답
-  client: WebClient,                           // Slack API 클라이언트
-  context: { botUserId: string },              // 봇 정보
-  shortcut: {
-    type: 'message_action',                    // Shortcut 타입
-    callback_id: 'thread_summary',             // 등록된 콜백 ID
-    message: {
-      ts: string,                              // 메시지 타임스탬프 (스레드 ID)
-      user: string,                            // 작성자 ID
-      text: string,                            // 메시지 텍스트
-    },
-    channel: { id: string },                   // 채널 정보
-    user: { id: string },                      // 실행자 정보
-  }
-}
+// 스레드 메시지 수집
+const messageService = new SlackMessageService(client);
+const threadMessages = await messageService.getThreadMessages({
+  channelId: channel.id,
+  threadTs: message.ts,
+  botUserId
+});
+
+// AI 요약 생성
+const geminiService = new GeminiService();
+const aiSummary = await geminiService.summarizeMessages({
+  formattedMessages,
+  participants: threadMessages.participants,
+  messageCount: threadMessages.messageCount,
+});
+
+// DM으로 결과 전송
+const dmResponse = await client.conversations.open({
+  users: shortcut.user.id,
+});
+await client.chat.postMessage({
+  channel: dmResponse.channel.id,
+  text: `📋 **스레드 요약 완료**\n\n${aiSummary}`,
+});
 ```
 
-### 3. 메시지 수집 서비스 (`src/slack/messageService.ts`)
+### 3. AI 요약 서비스 (`src/ai/geminiService.ts`)
+
+#### GeminiService 클래스
+
+```typescript
+import { GeminiService } from '../ai/geminiService';
+
+const geminiService = new GeminiService();
+const summary = await geminiService.summarizeMessages({
+  formattedMessages: "대화 내용...",
+  participants: ["홍길동", "김철수"],
+  messageCount: 5
+});
+```
+
+#### 환경변수 검증
+
+- `GEMINI_API_KEY`: Google Gemini API 키 (필수)
+- `GEMINI_MODEL`: 사용할 모델명 (필수, 예: `gemini-2.5-flash`)
+
+#### 요약 프롬프트 구조
+
+- 한국어 요약 생성
+- 주요 논점과 결론 정리
+- 참여자별 핵심 의견 구분
+- 결정사항 및 액션 아이템 식별
+
+### 4. 메시지 수집 서비스 (`src/slack/messageService.ts`)
 
 #### SlackMessageService 클래스
 
@@ -178,31 +191,34 @@ interface ThreadMessage {
 - `client.users.info()` API 사용
 - 실제 이름 > 표시 이름 > 사용자 ID 순 우선
 
-#### 응답 타입
+## 💡 사용법
 
-```typescript
-await respond({
-  text: string,                              // 메시지 텍스트 (필수)
-  response_type: 'ephemeral' | 'in_channel', // 공개/비공개 (기본: ephemeral)
-  blocks?: Block[],                          // Block Kit UI
-  thread_ts?: string,                        // 스레드 응답
-  replace_original?: boolean,                // 원본 메시지 대체
-});
-```
+1. **스레드가 있는 메시지**에서 점 3개 메뉴(⋯) 클릭
+2. **"스레드 요약하기"** 선택
+3. **개인 DM**으로 AI 요약 결과 수신
 
-**response_type**:
-- `ephemeral`: 실행자에게만 보임 (기본값)
-- `in_channel`: 채널 전체에 공개
+## 🔄 개선사항
 
-## 🔍 포맷팅 예시
+- **AI 모델**: Gemini 2.5 Flash
+- **개인화된 결과**: 채널 방해 없이 DM으로 전송
+- **구조화된 요약**: 핵심 내용, 논의사항, 결정사항 구분
+
+## 🔍 요약 결과 예시
 
 ```
-스레드 요약 요청
-참여자: 홍길동, 김철수
-메시지 수: 5개
+📋 스레드 요약 완료
 
-대화 내용:
-[2024. 01. 15. 14:30] 홍길동: 프로젝트 진행 어떻게 할까요?
-[2024. 01. 15. 14:32] 김철수: 먼저 요구사항 정리하면 좋겠어요
-...
+📊 수집 정보:
+• 참여자: 홍길동, 김철수
+• 메시지 수: 5개
+
+🤖 AI 요약:
+**핵심 내용**: 프로젝트 진행 방향에 대한 논의로, 요구사항 정리 우선 실행 합의
+
+**주요 논의**:
+- 홍길동: 프로젝트 전반적인 진행 방식 문의
+- 김철수: 요구사항 정리 우선 제안
+
+**결정사항**:
+- 요구사항 정리를 우선적으로 진행하기로 결정
 ```

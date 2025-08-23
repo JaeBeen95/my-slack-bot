@@ -18,7 +18,9 @@ TypeScript와 Node.js로 만든 슬랙 스레드 요약 봇입니다. Message Sh
 - ✅ **TypeScript 타입 안전성**
 - ✅ **Gemini AI 요약 기능 연동**
 - ✅ **DM 전송으로 개인화된 요약 결과 제공**
-- ⏳ **결과 저장 기능** (Notion, 파일 등)
+- ✅ **S3 저장 기능** (마크다운 형태로 요약 저장)
+- ✅ **AWS Bedrock RAG 검색 기능**
+- ✅ **슬래시 커맨드** (`/search`, `/chat`)
 
 ## 🛠️ 설정 방법
 
@@ -33,6 +35,19 @@ SLACK_SOCKET_TOKEN=xapp-...  # Socket Mode 토큰 (선택사항)
 # Gemini AI Configuration
 GEMINI_API_KEY=...           # Google Gemini API 키 (필수)
 GEMINI_MODEL=gemini-2.5-flash # 사용할 Gemini 모델 (필수)
+
+# AWS Configuration
+AWS_REGION=ap-northeast-2    # AWS 리전 (필수)
+AWS_ACCESS_KEY_ID=...        # AWS Access Key (필수)
+AWS_SECRET_ACCESS_KEY=...    # AWS Secret Key (필수)
+
+# S3 Configuration
+S3_BUCKET_NAME=...           # S3 버킷 이름 (필수)
+S3_PREFIX=slack-summaries/   # S3 객체 키 접두사 (선택사항)
+
+# Bedrock Configuration
+BEDROCK_MODEL_ID=anthropic.claude-3-5-sonnet-20241022-v2:0  # Bedrock 모델 ID (필수)
+BEDROCK_KNOWLEDGE_BASE_ID=... # Knowledge Base ID (RAG용, 선택사항)
 ```
 
 ### 2. Gemini API 설정
@@ -48,13 +63,33 @@ GEMINI_MODEL=gemini-2.5-flash # 사용할 Gemini 모델 (필수)
 - Name: `스레드 요약하기`
 - Callback ID: `thread_summary`
 
-### 4. 필요한 권한
+### 4. AWS 설정
 
+#### S3 버킷 생성
+1. AWS Console → S3 → 버킷 생성
+2. 버킷 이름 설정 (예: `my-slack-summaries`)
+3. 리전 선택 (예: `ap-northeast-2`)
+
+#### Bedrock 설정 (선택사항)
+1. AWS Console → Amazon Bedrock
+2. Model access → 사용할 모델 활성화 (Claude 3.5 Sonnet 권장)
+3. Knowledge Base 생성 (RAG 검색용, 선택사항)
+
+### 5. 필요한 권한
+
+#### Slack 권한
 - `chat:write`: 메시지 전송 (DM 포함)
 - `channels:history`: 채널 메시지 읽기
 - `groups:history`: 비공개 채널 메시지 읽기
 - `users:read`: 사용자 정보 조회
 - `im:write`: DM 전송
+- `commands`: 슬래시 커맨드 사용
+
+#### AWS IAM 권한
+- `s3:PutObject`: S3 업로드
+- `s3:GetObject`: S3 다운로드
+- `bedrock:InvokeModel`: Bedrock 모델 호출
+- `bedrock-agent:RetrieveAndGenerate`: RAG 검색 (선택사항)
 
 ## 🔧 코드 구조
 
@@ -193,15 +228,35 @@ interface ThreadMessage {
 
 ## 💡 사용법
 
+### 1. 스레드 요약 (Message Shortcut)
 1. **스레드가 있는 메시지**에서 점 3개 메뉴(⋯) 클릭
 2. **"스레드 요약하기"** 선택
 3. **개인 DM**으로 AI 요약 결과 수신
+4. S3에 마크다운 파일로 상세 요약 저장
 
-## 🔄 개선사항
+### 2. 검색 기능 (Slash Command)
+- `/search <검색어>`: 이전 요약들에서 관련 내용 검색
+- 예시: `/search 프로젝트 일정`
 
-- **AI 모델**: Gemini 2.5 Flash
-- **개인화된 결과**: 채널 방해 없이 DM으로 전송
-- **구조화된 요약**: 핵심 내용, 논의사항, 결정사항 구분
+### 3. AI 채팅 (Slash Command)
+- `/chat <메시지>`: Bedrock Claude와 채팅
+- 예시: `/chat 슬랙봇 사용법 알려줘`
+
+## 🔄 새로 추가된 기능
+
+### S3 저장 기능
+- 요약 결과를 마크다운 형태로 S3에 자동 저장
+- 체계적인 폴더 구조: `summaries/YYYY-MM-DD/채널ID_타임스탬프.md`
+- 메타데이터 포함: 참여자, 요청자, 생성시간 등
+
+### AWS Bedrock 연동
+- Claude 3.5 Sonnet을 통한 고품질 요약 생성 옵션
+- RAG(Retrieval-Augmented Generation) 기반 검색
+- 이전 요약들을 학습 데이터로 활용
+
+### 슬래시 커맨드
+- `/search`: Knowledge Base 검색으로 관련 요약 찾기
+- `/chat`: AI와 직접 대화하며 질문 해결
 
 ## 🔍 요약 결과 예시
 
@@ -221,4 +276,35 @@ interface ThreadMessage {
 
 **결정사항**:
 - 요구사항 정리를 우선적으로 진행하기로 결정
+
+📁 상세 요약 파일:
+s3://my-slack-summaries/slack-summaries/summaries/2024-01-15/C1234567890_1234567890_123456.md
 ```
+
+## ⚙️ 새로운 환경변수 설정
+
+기존 `.env` 파일에 다음 AWS 관련 설정을 추가해야 합니다:
+
+```bash
+# AWS Configuration
+AWS_REGION=ap-northeast-2
+AWS_ACCESS_KEY_ID=your-access-key
+AWS_SECRET_ACCESS_KEY=your-secret-key
+
+# S3 Configuration  
+S3_BUCKET_NAME=your-bucket-name
+S3_PREFIX=slack-summaries/
+
+# Bedrock Configuration
+BEDROCK_MODEL_ID=anthropic.claude-3-5-sonnet-20241022-v2:0
+BEDROCK_KNOWLEDGE_BASE_ID=your-kb-id  # RAG 검색용 (선택사항)
+```
+
+## 💰 예상 비용
+
+AWS 서비스 사용에 따른 예상 월 비용 (중소 규모 기준):
+- **Bedrock 사용료**: 일 10-20회 요약 시 약 $5-15
+- **S3 저장 비용**: 문서 저장 약 $1-5
+- **Knowledge Base**: RAG 검색 사용 시 약 $2-8
+
+총 예상 비용: **월 $8-28** (사용량에 따라 변동)

@@ -1,6 +1,8 @@
 import type { AllMiddlewareArgs, SlackShortcutMiddlewareArgs, MessageShortcut } from '@slack/bolt';
 import { SlackMessageService } from './messageService';
 import { GeminiService } from '../ai/geminiService';
+import { S3Service } from '../aws/s3Service';
+import { MarkdownGenerator } from '../utils/markdownGenerator';
 
 export const handleThreadSummaryAction = async ({
   ack,
@@ -84,11 +86,61 @@ export const handleThreadSummaryAction = async ({
       return;
     }
 
+    // S3에 마크다운 저장
+    let s3Url: string | null = null;
+    try {
+      const s3Service = new S3Service();
+      const markdownGenerator = new MarkdownGenerator();
+      
+      // 채널 정보 가져오기 (채널명 확인용)
+      let channelName: string | undefined;
+      try {
+        const channelInfo = await client.conversations.info({ channel: channel.id });
+        channelName = channelInfo.channel?.name;
+      } catch (error) {
+        console.warn('채널 정보 조회 실패:', error);
+      }
+
+      const markdownContent = markdownGenerator.generateSummaryMarkdown({
+        threadMessages,
+        aiSummary,
+        channelName,
+        requestedBy: shortcut.user.name || shortcut.user.id,
+        requestedAt: new Date(),
+      });
+
+      const s3Key = s3Service.generateSummaryKey(channel.id, message.ts);
+      const metadata = markdownGenerator.generateS3Metadata({
+        threadMessages,
+        aiSummary,
+        channelName,
+        requestedBy: shortcut.user.name || shortcut.user.id,
+        requestedAt: new Date(),
+      });
+
+      s3Url = await s3Service.uploadFile({
+        key: s3Key,
+        content: markdownContent,
+        contentType: 'text/markdown',
+        metadata,
+      });
+
+      console.log('S3 업로드 성공:', s3Url);
+    } catch (error) {
+      console.error('S3 저장 실패:', error);
+    }
+
     // DM으로 AI 요약 결과 전송
     try {
+      let dmText = `📋 **스레드 요약 완료**\n\n📊 **수집 정보:**\n• 참여자: ${threadMessages.participants.join(', ')}\n• 메시지 수: ${threadMessages.messageCount}개\n\n🤖 **AI 요약:**\n${aiSummary}`;
+      
+      if (s3Url) {
+        dmText += `\n\n📁 **상세 요약 파일:**\n${s3Url}`;
+      }
+
       await client.chat.postMessage({
         channel: dmResponse.channel.id,
-        text: `📋 **스레드 요약 완료**\n\n📊 **수집 정보:**\n• 참여자: ${threadMessages.participants.join(', ')}\n• 메시지 수: ${threadMessages.messageCount}개\n\n🤖 **AI 요약:**\n${aiSummary}`,
+        text: dmText,
       });
     } catch (error) {
       await respond({

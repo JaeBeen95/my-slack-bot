@@ -14,6 +14,19 @@ export interface ThreadMessages {
   participants: string[];
 }
 
+export interface GetThreadMessagesParams {
+  channelId: string;
+  threadTs: string;
+  botUserId?: string;
+}
+
+interface SlackUser {
+  real_name?: string;
+  profile?: {
+    display_name?: string;
+  };
+}
+
 // 필요한 클라이언트 메서드만 정의
 interface SlackClient {
   conversations: {
@@ -28,18 +41,14 @@ interface SlackClient {
   };
   users: {
     info: (params: { user: string }) => Promise<{
-      user?: {
-        real_name?: string;
-        profile?: {
-          display_name?: string;
-        };
-      };
+      user?: SlackUser;
     }>;
   };
 }
 
 export class SlackMessageService {
   private client: SlackClient;
+  private userCache = new Map<string, SlackUser | null>();
 
   constructor(client: SlackClient) {
     this.client = client;
@@ -48,11 +57,8 @@ export class SlackMessageService {
   /**
    * 스레드의 모든 메시지를 가져와서 요약 가능한 형태로 변환
    */
-  async getThreadMessages(
-    channelId: string,
-    threadTs: string,
-    botUserId?: string
-  ): Promise<ThreadMessages> {
+  async getThreadMessages(params: GetThreadMessagesParams): Promise<ThreadMessages> {
+    const { channelId, threadTs, botUserId } = params;
     try {
       // 스레드의 모든 메시지 가져오기
       const threadResponse = await this.client.conversations.replies({
@@ -75,11 +81,6 @@ export class SlackMessageService {
 
         // 봇이 보낸 메시지 제외
         if (botUserId && message.user === botUserId) {
-          continue;
-        }
-
-        // 봇 멘션이 포함된 요약 요청 메시지 제외
-        if (this.isSummaryRequestMessage(message.text, botUserId)) {
           continue;
         }
 
@@ -116,12 +117,21 @@ export class SlackMessageService {
   }
 
   /**
-   * 사용자 정보 가져오기 (캐시 적용 가능)
+   * 사용자 정보 가져오기
    */
   private async getUserInfo(userId: string) {
+    // 캐시에서 먼저 확인
+    if (this.userCache.has(userId)) {
+      return this.userCache.get(userId);
+    }
+
     try {
       const userResponse = await this.client.users.info({ user: userId });
-      return userResponse.user || null;
+      const userData = userResponse.user || null;
+
+      // 캐시에 저장
+      this.userCache.set(userId, userData);
+      return userData;
     } catch (error) {
       console.warn(`사용자 정보 조회 실패 (${userId}):`, error);
       return null;
@@ -140,23 +150,6 @@ export class SlackMessageService {
       hour: '2-digit',
       minute: '2-digit',
     });
-  }
-
-  /**
-   * 요약 요청 메시지인지 확인
-   */
-  private isSummaryRequestMessage(text: string, botUserId?: string): boolean {
-    // 봇 멘션이 포함되고 "요약" 키워드가 있는 경우
-    if (botUserId && text.includes(`<@${botUserId}>`) && text.includes('요약')) {
-      return true;
-    }
-
-    // 단순히 "요약"만 있는 메시지 (봇 멘션 없이)
-    if (text.trim() === '요약') {
-      return true;
-    }
-
-    return false;
   }
 
   /**

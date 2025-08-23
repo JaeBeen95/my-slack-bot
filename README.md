@@ -117,7 +117,7 @@ export const handleThreadSummaryAction = async ({
   ack: () => Promise<void>,                    // 즉시 응답 (3초 내 필수)
   respond: (response) => Promise<void>,        // 메시지 응답
   client: WebClient,                           // Slack API 클라이언트
-  context: { botUserId: string },             // 봇 정보
+  context: { botUserId: string },              // 봇 정보
   shortcut: {
     type: 'message_action',                    // Shortcut 타입
     callback_id: 'thread_summary',             // 등록된 콜백 ID

@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
 import { App } from '@slack/bolt';
 import { handleThreadSummaryAction } from './slack/commands';
+import { handleSearchCommand, handleChatCommand } from './slack/searchCommands';
 
 dotenv.config();
 
@@ -38,6 +39,10 @@ const app = new App({
 
 // Message Shortcut 등록 (우클릭 메뉴)
 app.shortcut('thread_summary', handleThreadSummaryAction);
+
+// Slash Command 등록
+app.command('/search', handleSearchCommand);
+app.command('/chat', handleChatCommand);
 
 // 앱 시작
 (async () => {
